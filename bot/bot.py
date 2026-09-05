@@ -1,53 +1,182 @@
 import asyncio
 import aiohttp
 import os
+
 from dotenv import load_dotenv
+
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import CommandStart, Command
-from aiogram.types import Message, CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.types import (
+    Message,
+    CallbackQuery,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+)
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.storage.memory import MemoryStorage
 
 
-load_dotenv()
-BOT_TOKEN = os.getenv("BOT_TOKEN")
+# =========================================================
+# CONFIGURATION
+# =========================================================
 
+load_dotenv()
+
+BOT_TOKEN = os.getenv("BOT_TOKEN")
 API_URL = "http://127.0.0.1:8000/api"
 
+
+# =========================================================
+# BOT / DISPATCHER
+# =========================================================
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
 
-
 user_tokens = {}
 
+
+# =========================================================
+# FSM STATES
+# =========================================================
 
 class LoginForm(StatesGroup):
     username = State()
     password = State()
+
 
 class OrderForm(StatesGroup):
     address = State()
     phone = State()
 
 
+# =========================================================
+# MAIN MENU
+# =========================================================
 
 @dp.message(CommandStart())
 async def start(message: Message):
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="Pizza",
+                    callback_data="menu_pizza"
+                ),
+                InlineKeyboardButton(
+                    text="Cart",
+                    callback_data="menu_cart"
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    text="Order",
+                    callback_data="menu_order"
+                ),
+                InlineKeyboardButton(
+                    text="Log in",
+                    callback_data="menu_login"
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    text="Log out",
+                    callback_data="menu_logout"
+                ),
+            ],
+        ]
+    )
+
     await message.answer(
         "Welcome in pizzeria!\n\n"
-        "Avaible commend:\n"
-        "/pizza - Pizza list\n"
-        "/cart - Your basket\n"
-        "/order - Place an order"
-        "/logout - Log out"
+        "Select option:",
+        reply_markup=keyboard
     )
 
 
+@dp.callback_query(F.data == "menu_pizza")
+async def menu_pizza(callback: CallbackQuery):
+    telegram_user_id = callback.from_user.id
+
+    if telegram_user_id not in user_tokens:
+        await callback.message.answer(
+            "You must log in first.\n"
+            "Use /login"
+        )
+
+        await callback.answer()
+        return
+
+    await callback.answer()
+    await pizzas(callback.message)
+
+
+@dp.callback_query(F.data == "menu_cart")
+async def menu_cart(callback: CallbackQuery):
+    await callback.answer()
+
+    await cart(
+        callback.message,
+        telegram_user_id=callback.from_user.id
+    )
+
+
+@dp.callback_query(F.data == "menu_order")
+async def menu_order(
+    callback: CallbackQuery,
+    state: FSMContext
+):
+    await callback.answer()
+
+    await order_start(
+        callback.message,
+        state,
+        telegram_user_id=callback.from_user.id
+    )
+
+
+@dp.callback_query(F.data == "menu_login")
+async def menu_login(
+    callback: CallbackQuery,
+    state: FSMContext
+):
+    await callback.answer()
+
+    await state.set_state(LoginForm.username)
+
+    await callback.message.answer(
+        "Please enter your account username:"
+    )
+
+
+@dp.callback_query(F.data == "menu_logout")
+async def menu_logout(callback: CallbackQuery):
+    await callback.answer()
+
+    telegram_user_id = callback.from_user.id
+
+    if telegram_user_id in user_tokens:
+        del user_tokens[telegram_user_id]
+
+        await callback.message.answer(
+            "Logged out successfully!"
+        )
+    else:
+        await callback.message.answer(
+            "You are not logged in."
+        )
+
+
+# =========================================================
+# LOGIN / LOGOUT
+# =========================================================
 
 @dp.message(Command("login"))
-async def login_start(message: Message, state: FSMContext):
+async def login_start(
+    message: Message,
+    state: FSMContext
+):
     await state.set_state(LoginForm.username)
 
     await message.answer(
@@ -55,19 +184,29 @@ async def login_start(message: Message, state: FSMContext):
     )
 
 
-
 @dp.message(LoginForm.username)
-async def login_username(message: Message, state: FSMContext):
-    await state.update_data(username=message.text)
+async def login_username(
+    message: Message,
+    state: FSMContext
+):
+    await state.update_data(
+        username=message.text
+    )
 
-    await state.set_state(LoginForm.password)
+    await state.set_state(
+        LoginForm.password
+    )
 
-    await message.answer("Please enter your password:")
-
+    await message.answer(
+        "Please enter your password:"
+    )
 
 
 @dp.message(LoginForm.password)
-async def login_password(message: Message, state: FSMContext):
+async def login_password(
+    message: Message,
+    state: FSMContext
+):
     data = await state.get_data()
 
     username = data["username"]
@@ -106,43 +245,59 @@ async def login_password(message: Message, state: FSMContext):
     )
 
 
-
 @dp.message(Command("logout"))
 async def logout(message: Message):
     telegram_user_id = message.from_user.id
+
     if telegram_user_id in user_tokens:
         del user_tokens[telegram_user_id]
 
-        await message.answer("You have been logged out."
+        await message.answer(
+            "You have been logged out."
         )
     else:
-        await message.answer("You are not logged in."
+        await message.answer(
+            "You are not logged in."
         )
 
 
+# =========================================================
+# PIZZA
+# =========================================================
 
 @dp.message(Command("pizza"))
 async def pizzas(message: Message):
-    
+
     async with aiohttp.ClientSession() as session:
-        async with session.get(f"{API_URL}/pizza/") as response:
+        async with session.get(
+            f"{API_URL}/pizza/"
+        ) as response:
+
             if response.status != 200:
-                await message.anserw("The pizza list could not be loaded.")
+                await message.answer(
+                    "The pizza list could not be loaded."
+                )
                 return
 
             pizzas_data = await response.json()
+
     if not pizzas_data:
-        await message.answer("No pizzas available.")
+        await message.answer(
+            "No pizzas available."
+        )
         return
 
     buttons = []
 
     for pizza in pizzas_data:
-        pizza_name = pizza.get("name", f"Pizza {pizza['id']}")
+        pizza_name = pizza.get(
+            "name",
+            f"Pizza {pizza['id']}"
+        )
 
         buttons.append([
             InlineKeyboardButton(
-                text=f" {pizza_name}",
+                text=pizza_name,
                 callback_data=f"pizza:{pizza['id']}"
             )
         ])
@@ -152,15 +307,13 @@ async def pizzas(message: Message):
     )
 
     await message.answer(
-        "Choose your pizzas:",
+        "Choose your pizza:",
         reply_markup=keyboard
     )
 
 
-
 @dp.callback_query(F.data.startswith("pizza:"))
 async def select_pizza(callback: CallbackQuery):
-
     pizza_id = callback.data.split(":")[1]
 
     async with aiohttp.ClientSession() as session:
@@ -172,6 +325,7 @@ async def select_pizza(callback: CallbackQuery):
                 await callback.message.answer(
                     "Unable to retrieve the size."
                 )
+                await callback.answer()
                 return
 
             sizes = await response.json()
@@ -186,7 +340,7 @@ async def select_pizza(callback: CallbackQuery):
 
         buttons.append([
             InlineKeyboardButton(
-                text=f"📏 {size_name}",
+                text=f"{size_name}",
                 callback_data=(
                     f"size:{pizza_id}:{size['id']}"
                 )
@@ -198,18 +352,16 @@ async def select_pizza(callback: CallbackQuery):
     )
 
     await callback.message.answer(
-        "Choose your sizes:",
+        "Choose your size:",
         reply_markup=keyboard
     )
 
     await callback.answer()
-    
 
 
 @dp.callback_query(F.data.startswith("size:"))
 async def select_size(callback: CallbackQuery):
-
-    _, pizza_id, size_id = callback.data.split(":")
+    pizza_id, size_id = callback.data.split(":")
 
     async with aiohttp.ClientSession() as session:
         async with session.get(
@@ -220,6 +372,7 @@ async def select_size(callback: CallbackQuery):
                 await callback.message.answer(
                     "Unable to retrieve the type of cake."
                 )
+                await callback.answer()
                 return
 
             typecakes = await response.json()
@@ -234,9 +387,10 @@ async def select_size(callback: CallbackQuery):
 
         buttons.append([
             InlineKeyboardButton(
-                text=f"🥖 {typecake_name}",
+                text=typecake_name,
                 callback_data=(
-                    f"type:{pizza_id}:{size_id}:{typecake['id']}"
+                    f"type:{pizza_id}:{size_id}:"
+                    f"{typecake['id']}"
                 )
             )
         ])
@@ -253,29 +407,41 @@ async def select_size(callback: CallbackQuery):
     await callback.answer()
 
 
-
 @dp.callback_query(F.data.startswith("type:"))
 async def select_typecake(callback: CallbackQuery):
-
-    _, pizza_id, size_id, typecake_id = callback.data.split(":")
+    _, pizza_id, size_id, typecake_id = (
+        callback.data.split(":")
+    )
 
     buttons = [
         [
             InlineKeyboardButton(
                 text="1",
-                callback_data=f"add:{pizza_id}:{size_id}:{typecake_id}:1"
+                callback_data=(
+                    f"add:{pizza_id}:{size_id}:"
+                    f"{typecake_id}:1"
+                )
             ),
             InlineKeyboardButton(
                 text="2",
-                callback_data=f"add:{pizza_id}:{size_id}:{typecake_id}:2"
+                callback_data=(
+                    f"add:{pizza_id}:{size_id}:"
+                    f"{typecake_id}:2"
+                )
             ),
             InlineKeyboardButton(
                 text="3",
-                callback_data=f"add:{pizza_id}:{size_id}:{typecake_id}:3"
+                callback_data=(
+                    f"add:{pizza_id}:{size_id}:"
+                    f"{typecake_id}:3"
+                )
             ),
             InlineKeyboardButton(
                 text="4",
-                callback_data=f"add:{pizza_id}:{size_id}:{typecake_id}:4"
+                callback_data=(
+                    f"add:{pizza_id}:{size_id}:"
+                    f"{typecake_id}:4"
+                )
             ),
         ]
     ]
@@ -292,22 +458,24 @@ async def select_typecake(callback: CallbackQuery):
     await callback.answer()
 
 
+# =========================================================
+# ADD TO CART
+# =========================================================
 
 @dp.callback_query(F.data.startswith("add:"))
 async def add_to_cart(callback: CallbackQuery):
-
     telegram_user_id = callback.from_user.id
 
     if telegram_user_id not in user_tokens:
         await callback.message.answer(
             "You must log in first.\n"
-            "Użyj /login"
+            "Use /login"
         )
 
         await callback.answer()
         return
 
-    _, pizza_id, size_id, typecake_id, quantity = (
+    pizza_id, size_id, typecake_id, quantity = (
         callback.data.split(":")
     )
 
@@ -335,9 +503,10 @@ async def add_to_cart(callback: CallbackQuery):
 
             if response.status == 401:
                 await callback.message.answer(
-                    "Your session has expired."
-                    "Please log in again using the /login link."
+                    "Your session has expired.\n"
+                    "Please log in again using /login."
                 )
+                await callback.answer()
                 return
 
             if response.status != 201:
@@ -346,30 +515,39 @@ async def add_to_cart(callback: CallbackQuery):
                 await callback.message.answer(
                     f"Unable to add to basket.\n{error}"
                 )
+                await callback.answer()
                 return
 
     await callback.message.answer(
         "The pizza has been added to your basket!\n\n"
-        "Use /cart to view basket."
+        "Use /cart to view cart."
     )
 
     await callback.answer()
 
 
+# =========================================================
+# CART
+# =========================================================
 
 @dp.message(Command("cart"))
-async def cart(message: Message):
-
-    telegram_user_id = message.from_user.id
+async def cart(
+    message: Message,
+    telegram_user_id=None
+):
+    if telegram_user_id is None:
+        telegram_user_id = message.from_user.id
 
     if telegram_user_id not in user_tokens:
         await message.answer(
-            "You are not log in.\n"
+            "You are not logged in.\n"
             "Use /login."
         )
         return
 
-    access_token = user_tokens[telegram_user_id]["access"]
+    access_token = user_tokens[
+        telegram_user_id
+    ]["access"]
 
     headers = {
         "Authorization": f"Bearer {access_token}"
@@ -383,14 +561,14 @@ async def cart(message: Message):
 
             if response.status == 401:
                 await message.answer(
-                    "Your session has expired."
-                    "Please log in again using the /login link."
+                    "Your session has expired.\n"
+                    "Please log in again using /login."
                 )
                 return
 
             if response.status != 200:
                 await message.answer(
-                    "The shopping basket could not be loaded."
+                    "The shopping cart could not be loaded."
                 )
                 return
 
@@ -398,46 +576,51 @@ async def cart(message: Message):
 
     if not cart_items:
         await message.answer(
-            "Your basket is empty."
+            "Your cart is empty."
         )
         return
 
-    text = "Your basket:\n\n"
+    text = "Your cart:\n\n"
 
     for item in cart_items:
         text += (
             f"{item['pizza']}\n"
             f"Size: {item['size']}\n"
             f"Cake: {item['typecake']}\n"
-            f"Quantity: {item['quantity']}\n\n"
+            f"Quantity: {item['quantity']}\n"
             f"ID position: {item['id']}\n\n"
         )
 
     await message.answer(text)
 
 
+# =========================================================
+# ORDER
+# =========================================================
 
 @dp.message(Command("order"))
 async def order_start(
     message: Message,
-    state: FSMContext
+    state: FSMContext,
+    telegram_user_id=None
 ):
-
-    telegram_user_id = message.from_user.id
+    if telegram_user_id is None:
+        telegram_user_id = message.from_user.id
 
     if telegram_user_id not in user_tokens:
         await message.answer(
-            "❌ Musisz się zalogować.\n"
-            "Użyj /login."
+            "You are not logged in.\n"
+            "Use /login."
         )
         return
 
-    await state.set_state(OrderForm.address)
-
-    await message.answer(
-        "Podaj adres dostawy:"
+    await state.set_state(
+        OrderForm.address
     )
 
+    await message.answer(
+        "Please enter the delivery address:"
+    )
 
 
 @dp.message(OrderForm.address)
@@ -445,7 +628,6 @@ async def order_address(
     message: Message,
     state: FSMContext
 ):
-
     await state.update_data(
         address=message.text
     )
@@ -455,9 +637,8 @@ async def order_address(
     )
 
     await message.answer(
-        "📞 Podaj numer telefonu:"
+        "Please enter your phone number:"
     )
-
 
 
 @dp.message(OrderForm.phone)
@@ -465,8 +646,15 @@ async def order_phone(
     message: Message,
     state: FSMContext
 ):
-
     telegram_user_id = message.from_user.id
+
+    if telegram_user_id not in user_tokens:
+        await message.answer(
+            "You are not logged in.\n"
+            "Use /login."
+        )
+        await state.clear()
+        return
 
     data = await state.get_data()
 
@@ -493,36 +681,40 @@ async def order_phone(
             headers=headers,
         ) as response:
 
-            result = await response.json()
-
             if response.status == 401:
                 await message.answer(
-                    "❌ Sesja wygasła. Zaloguj się ponownie."
+                    "Your session has expired. Please log in again."
                 )
-
                 await state.clear()
                 return
 
             if response.status != 201:
-                await message.answer(
-                    f"❌ Nie udało się złożyć zamówienia.\n{result}"
-                )
+                error = await response.text()
 
+                await message.answer(
+                    "The order could not be placed.\n"
+                    f"{error}"
+                )
                 await state.clear()
                 return
+
+            result = await response.json()
 
     await state.clear()
 
     await message.answer(
-        "✅ Zamówienie zostało złożone!\n\n"
-        f"Numer zamówienia: {result['order_id']}\n"
-        f"Wartość: {result['value']} zł"
+        "Your order has been placed!\n\n"
+        f"ID Order: {result['order_id']}\n"
+        f"Total: {result['value']} zł"
     )
 
 
+# =========================================================
+# RUN BOT
+# =========================================================
 
 async def main():
-    print("Bot działa...")
+    print("Bot is running...")
     await dp.start_polling(bot)
 
 
