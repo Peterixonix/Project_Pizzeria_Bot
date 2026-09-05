@@ -59,9 +59,9 @@ def create_order(request):
 
     total_value = Decimal("0.00")
     order = Order.objects.create(
-        user=user,
-        address=address,
-        phone=phone,
+        user=request.user,
+        adres=request.data.get("address"),
+        phone=request.data.get("phone"),
         value=0
     )
 
