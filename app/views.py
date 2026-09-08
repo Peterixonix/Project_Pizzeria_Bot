@@ -53,7 +53,7 @@ def create_order(request):
 
     if not cart_items.exists():
         return Response(
-            {"error":"Your basket is empty."},
+            {"error":"Your cart is empty."},
             status=status.HTTP_400_BAD_REQUEST
         )
 
@@ -137,7 +137,7 @@ def add_to_cart(request):
         quantity=quantity
     )
     return Response(
-        {"message": "Add to basket"},
+        {"message": "Add to cart"},
         status=status.HTTP_201_CREATED
     )
 
@@ -171,14 +171,14 @@ def remove_from_cart(request, item_id):
         )
     except Shopping.DoesNotExist:
         return Response(
-            {"error": "No found posision in this basket"},
+            {"error": "No found posision in this cart"},
             status=status.HTTP_404_NOT_FOUND
         )
 
     item.delete()
 
     return Response(
-        {"message": "Deleted posision in this basket"},
+        {"message": "Deleted posision in this cart"},
         status=status.HTTP_200_OK
     )
 
@@ -192,7 +192,7 @@ def update_cart_item(request, item_id):
         )
     except Shopping.DoesNotExist:
         return Response(
-            {"error": "There are no items in your basket."},
+            {"error": "There are no items in your cart."},
             status=status.HTTP_404_NOT_FOUND
         )
     quantity = request.data.get("quantity")
