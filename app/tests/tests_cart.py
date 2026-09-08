@@ -1,17 +1,52 @@
+import pytest
 from django.contrib.auth.models import User
-from rest_framework.test import APITestCase
-from rest_framework import status
+from rest_framework.test import APIClient
+
+from app.models import Pizza, Size, TypeCake, Shopping
 
 
+@pytest.mark.django_db
+def test_add_pizza_to_cart():
+    user = User.objects.create_user(
+        username="testuser",
+        password="test123"
+    )
 
-class CartTests(APITestCase):
+    pizza = Pizza.objects.create(
+        name="Margherita",
+        content="Tomato sauce, cheese"
+    )
 
-    def test_cart_authentication(self):
-        response = self.client.get(
-            "/api/cart/"
-        )
+    size = Size.objects.create(
+        name="Large",
+        diameter=40
+    )
 
-        self.assertEqual(
-            response.status_code,
-            status.HTTP_401_UNAUTHORIZED
-        )
+    typecake = TypeCake.objects.create(
+        name="Thin"
+    )
+
+    client = APIClient()
+    client.force_authenticate(user=user)
+
+    data = {
+        "pizza": pizza.id,
+        "size": size.id,
+        "typecake": typecake.id,
+        "quantity": 2
+    }
+
+    response = client.post(
+        "/api/cart/add/",
+        data,
+        format="json"
+    )
+
+    assert response.status_code == 201
+
+    cart_item = Shopping.objects.get(user=user)
+
+    assert cart_item.pizza == pizza
+    assert cart_item.size == size
+    assert cart_item.typecake == typecake
+    assert cart_item.quantity == 2
