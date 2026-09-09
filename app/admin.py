@@ -12,6 +12,36 @@ admin.site.register(Pizza)
 admin.site.register(Size)
 admin.site.register(TypeCake)
 admin.site.register(Price)
-admin.site.register(Order)
 admin.site.register(Shopping)
 admin.site.register(OrderItem)
+
+
+@admin.register(Order)
+class OrderAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "user",
+        "date",
+        "status",
+        "phone",
+        "value",
+    )
+
+    list_filter = (
+        "status",
+        "date",
+    )
+
+    search_fields = (
+        "user__username",
+        "phone",
+        "adres",
+    )
+
+    actions = (
+        "mark_as_delivered",
+    )
+
+    @admin.action(description="Mark selected orders as delivered")
+    def mark_as_delivered(self, request, queryset):
+        queryset.uptade(status="delivered")
