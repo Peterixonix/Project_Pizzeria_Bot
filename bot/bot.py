@@ -528,11 +528,14 @@ async def order_phone(message: Message, state: FSMContext):
 # RUN BOT
 
 
-async def main():
-    """Uruchamia bota Telegram i rozpoczyna odbieranie wiadomości."""
-    print("Bot is running...")
-    await dp.start_polling(bot)
-
-
+async def main(): 
+    """Uruchamia bota Telegram i rozpoczyna odbieranie wiadomości.""" 
+    print("Bot is running...") 
+    await dp.start_polling(bot) 
+ 
+ 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("Bot stopped.")
