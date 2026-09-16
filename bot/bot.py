@@ -520,7 +520,17 @@ async def order_phone(message: Message, state: FSMContext):
     await message.answer(
         "Your order has been placed!\n\n"
         f"ID Order: {result['order_id']}\n"
-        f"Total: {result['value']} zł"
+        f"Total: {result['value']} zł",
+        reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=[[
+                InlineKeyboardButton(
+                    text="Pizza", callback_data="menu_pizza"
+                ),
+                InlineKeyboardButton(
+                    text="Log out", callback_data="menu_logout"
+                )
+            ]]
+        )
     )
 
 

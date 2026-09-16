@@ -13,6 +13,7 @@ from app.models.order import Order
 
 @pytest.mark.django_db
 def test_create_order():
+    """Sprawdza utworzenie zamówienia, obliczenie jego wartości i opróżnienie koszyka."""
     user = User.objects.create_user(username="test", password="test123")
     pizza = Pizza.objects.create(name="Margherita", content="Cheese")
     size = Size.objects.create(name="Large", diameter=40)

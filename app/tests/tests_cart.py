@@ -7,6 +7,7 @@ from app.models import Pizza, Size, TypeCake, Shopping
 
 @pytest.mark.django_db
 def test_add_pizza_to_cart():
+    """Sprawdza, czy zalogowany użytkownik może poprawnie dodać pizzę do koszyka."""
     user = User.objects.create_user(
         username="testuser",
         password="test123"
