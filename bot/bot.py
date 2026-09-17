@@ -20,20 +20,26 @@ from aiogram.fsm.storage.memory import MemoryStorage
 
 # CONFIGURATION
 
-
+# Wczytuje zmienne środowiskowe z pliku .env.
 load_dotenv()
 
+# Pobiera token bota Telegram ze zmiennej środowiskowej.
 BOT_TOKEN = os.getenv("BOT_TOKEN")
+
+# Ustawia adres API Django, z którym komunikuje się bot.
 API_URL = "http://127.0.0.1:8000/api"
 
 
 
 # BOT / DISPATCHER
 
-
+# Tworzy obiekt bota przy użyciu tokenu pobranego z pliku .env.
 bot = Bot(token=BOT_TOKEN)
+
+# Tworzy dispatcher odpowiedzialny za obsługę zdarzeń i przechowywanie stanów FSM.
 dp = Dispatcher(storage=MemoryStorage())
 
+# Przechowuje tokeny JWT zalogowanych użytkowników według ich ID z Telegrama.
 user_tokens = {}
 
 def button_keyboard(text, callback_data):
@@ -55,6 +61,8 @@ def logged_keyboard():
 
 def auth_headers(telegram_user_id):
     """Tworzy nagłówek autoryzacji z tokenem JWT użytkownika."""
+    
+    # Pobiera access token użytkownika i umieszcza go w nagłówku Authorization.
     return {
         "Authorization": f"Bearer {user_tokens[telegram_user_id]['access']}"
     }
@@ -64,12 +72,12 @@ def auth_headers(telegram_user_id):
 # FSM STATES
 
 
-
+# Określa kolejne etapy procesu logowania.
 class LoginForm(StatesGroup):
     username = State()
     password = State()
 
-
+# Określa kolejne etapy procesu składania zamówienia.
 class OrderForm(StatesGroup):
     address = State()
     phone = State()
@@ -83,14 +91,22 @@ class OrderForm(StatesGroup):
 @dp.message(CommandStart())
 async def start(message: Message):
     """Wyświetla główne menu po uruchomieniu bota za pomocą /start."""
+    
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="Pizza", callback_data="menu_pizza")],
-            [InlineKeyboardButton(text="Log in", callback_data="menu_login")],
-            [InlineKeyboardButton(text="Log out", callback_data="menu_logout")]
+            [InlineKeyboardButton(
+                text="Pizza", 
+                callback_data="menu_pizza")],
+            [InlineKeyboardButton(
+                text="Log in", 
+                callback_data="menu_login")],
+            [InlineKeyboardButton(
+                text="Log out", 
+                callback_data="menu_logout")]
         ]
     )
 
+    # Wysyła użytkownikowi wiadomość wraz z menu.
     await message.answer(
         "Welcome in pizzeria!\n\nSelect option:",
         reply_markup=keyboard
@@ -101,6 +117,8 @@ async def start(message: Message):
 @dp.callback_query(F.data == "menu_pizza")
 async def menu_pizza(callback: CallbackQuery):
     """Obsługuje przycisk Pizza i sprawdza, czy użytkownik jest zalogowany."""
+    
+
     if callback.from_user.id not in user_tokens:
         await callback.message.answer(
             "You must log in first.",
@@ -109,6 +127,8 @@ async def menu_pizza(callback: CallbackQuery):
         await callback.answer()
         return
 
+
+    # Potwierdza obsługę przycisku i przechodzi do listy pizz.
     await callback.answer()
     await pizzas(callback.message)
 
@@ -134,6 +154,7 @@ async def menu_order(callback: CallbackQuery, state: FSMContext):
 async def menu_login(callback: CallbackQuery, state: FSMContext):
     """Rozpoczyna proces logowania użytkownika."""
     await callback.answer()
+    # Ustawia pierwszy etap logowania - podanie nazwy użytkownika.
     await state.set_state(LoginForm.username)
     await callback.message.answer("Please enter your account username:")
 
@@ -145,10 +166,12 @@ async def menu_logout(callback: CallbackQuery):
     await callback.answer()
     telegram_user_id = callback.from_user.id
 
+    # Sprawdza, czy użytkownik jest zalogowany.
     if telegram_user_id not in user_tokens:
         await callback.message.answer("You are not logged in.")
         return
 
+    # Usuwa zapisane tokeny użytkownika.
     del user_tokens[telegram_user_id]
 
     await callback.message.answer(
@@ -165,8 +188,13 @@ async def menu_logout(callback: CallbackQuery):
 @dp.message(LoginForm.username)
 async def login_username(message: Message, state: FSMContext):
     """Zapisuje nazwę użytkownika i przechodzi do podania hasła."""
+
+    # Tymczasowo zapisuje nazwę użytkownika w FSM.
     await state.update_data(username=message.text)
+
+    # Przechodzi do następnego etapu - podania hasła.
     await state.set_state(LoginForm.password)
+
     await message.answer("Please enter your password:")
 
 
@@ -174,8 +202,11 @@ async def login_username(message: Message, state: FSMContext):
 @dp.message(LoginForm.password)
 async def login_password(message: Message, state: FSMContext):
     """Loguje użytkownika przez API i zapisuje otrzymane tokeny JWT."""
+    
+     # Pobiera wcześniej zapisaną nazwę użytkownika z FSM.
     data = await state.get_data()
 
+    # Tworzy asynchroniczną sesję HTTP i wysyła login i hasło do endpointu logowania Django.
     async with aiohttp.ClientSession() as session:
         async with session.post(
             f"{API_URL}/login/",
@@ -184,6 +215,8 @@ async def login_password(message: Message, state: FSMContext):
                 "password": message.text
             }
         ) as response:
+
+            # Sprawdza, czy logowanie zakończyło się powodzeniem.
             if response.status != 200:
                 await message.answer("Incorrect username or password.",
                 reply_markup=button_keyboard("Log in", "menu_login")
@@ -193,13 +226,16 @@ async def login_password(message: Message, state: FSMContext):
 
             tokens = await response.json()
 
+    # Zapisuje access i refresh token dla użytkownika Telegrama.
     user_tokens[message.from_user.id] = {
         "access": tokens["access"],
         "refresh": tokens["refresh"]
     }
 
+    # Czyści stan procesu logowania.
     await state.clear()
 
+    # Odpowiedź po pomyślnym zalogowaniu
     await message.answer(
         "Logged in successfully!",
         reply_markup=logged_keyboard()
@@ -211,20 +247,25 @@ async def login_password(message: Message, state: FSMContext):
 
 async def pizzas(message: Message):
     """Pobiera pizze z API i wyświetla je jako przyciski."""
+
+    # Wysyła zapytanie GET do API w celu pobrania dostępnych pizz.
     async with aiohttp.ClientSession() as session:
         async with session.get(f"{API_URL}/pizza/") as response:
             if response.status != 200:
                 await message.answer("Failed to load pizzas.")
                 return
 
+            # Zamienia odpowiedź JSON na dane Pythona.
             pizzas_data = await response.json()
 
+    # Sprawdza, czy API zwróciło jakieś pizze.
     if not pizzas_data:
         await message.answer("No pizzas available.")
         return
 
     buttons = []
 
+    # Dla każdej pizzy tworzy osobny przycisk.
     for pizza in pizzas_data:
         button = InlineKeyboardButton(
             text=pizza["name"],
@@ -233,6 +274,7 @@ async def pizzas(message: Message):
 
         buttons.append([button])
 
+    # Tworzy klawiaturę z przygotowanych przycisków.
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=buttons
 )
@@ -245,8 +287,11 @@ async def pizzas(message: Message):
 async def select_pizza(callback: CallbackQuery):
     """Obsługuje wybór pizzy i wyświetla dostępne rozmiary."""
     await callback.answer()
+
+    # Pobiera ID wybranej pizzy z callback_data przycisku.
     pizza_id = callback.data.split(":")[1]
 
+    # Pobiera dostępne rozmiary z API.
     async with aiohttp.ClientSession() as session:
         async with session.get(f"{API_URL}/size/") as response:
             if response.status != 200:
@@ -261,6 +306,7 @@ async def select_pizza(callback: CallbackQuery):
 
     buttons = []
 
+    # Tworzy przycisk dla każdego dostępnego rozmiaru.
     for size in sizes:
         button = InlineKeyboardButton(
             text=size["name"],
@@ -281,8 +327,11 @@ async def select_pizza(callback: CallbackQuery):
 async def select_size(callback: CallbackQuery):
     """Obsługuje wybór rozmiaru i wyświetla dostępne rodzaje ciasta."""
     await callback.answer()
+
+    # Pobiera ID pizzy i rozmiaru z callback_data.
     _, pizza_id, size_id = callback.data.split(":")
 
+    # Pobiera dostępne rodzaje ciasta z API.
     async with aiohttp.ClientSession() as session:
         async with session.get(f"{API_URL}/typecake/") as response:
             if response.status != 200:
@@ -297,6 +346,7 @@ async def select_size(callback: CallbackQuery):
 
     buttons = []
 
+    # Tworzy przycisk dla każdego rodzaju ciasta.
     for typecake in typecakes:
         button = InlineKeyboardButton(
             text=typecake["name"],
@@ -317,10 +367,13 @@ async def select_size(callback: CallbackQuery):
 async def select_typecake(callback: CallbackQuery):
     """Obsługuje wybór rodzaju ciasta i wyświetla możliwe ilości."""
     await callback.answer()
+
+    # Pobiera wcześniej wybrane ID pizzy, rozmiaru i rodzaju ciasta.
     _, pizza_id, size_id, typecake_id = callback.data.split(":")
 
     buttons = []
 
+    # Tworzy przyciski pozwalające wybrać od 1 do 4 sztuk.
     for quantity in range(1, 5):
         button = InlineKeyboardButton(
             text=str(quantity),
@@ -347,8 +400,10 @@ async def select_typecake(callback: CallbackQuery):
 @dp.callback_query(F.data.startswith("add:"))
 async def add_to_cart(callback: CallbackQuery):
     """Dodaje wybraną konfigurację pizzy do koszyka użytkownika."""
+    
     telegram_user_id = callback.from_user.id
 
+    # Sprawdza, czy użytkownik jest zalogowany.
     if telegram_user_id not in user_tokens:
         await callback.message.answer(
             "You must log in first.",
@@ -357,10 +412,15 @@ async def add_to_cart(callback: CallbackQuery):
         await callback.answer()
         return
 
+    # Pobiera dane wybrane wcześniej przez użytkownika.
     _, pizza_id, size_id, typecake_id, quantity = callback.data.split(":")
 
+    
+    # Przygotowuje nagłówek z tokenem JWT.
     headers = auth_headers(telegram_user_id)
 
+
+    # Przygotowuje dane, które zostaną wysłane do API.
     data = {
         "pizza": int(pizza_id),
         "size": int(size_id),
@@ -368,12 +428,15 @@ async def add_to_cart(callback: CallbackQuery):
         "quantity": int(quantity)
     }
 
+    # Wysyła dane do endpointu dodającego produkt do koszyka.
     async with aiohttp.ClientSession() as session:
         async with session.post(
             f"{API_URL}/cart/add/",
             json=data,
             headers=headers
         ) as response:
+
+            # Sprawdza brak poprawnego uwierzytelnienia (401).
             if response.status == 401:
                 await callback.message.answer(
                     "Your session has expired.",
@@ -382,6 +445,7 @@ async def add_to_cart(callback: CallbackQuery):
                 await callback.answer()
                 return
 
+            # Sprawdza, czy produkt został poprawnie utworzony w koszyku.
             if response.status != 201:
                 error = await response.text()
                 await callback.message.answer(
@@ -404,9 +468,12 @@ async def add_to_cart(callback: CallbackQuery):
 
 async def cart(message: Message, telegram_user_id=None):
     """Pobiera z API i wyświetla zawartość koszyka użytkownika."""
+
+    # Jeśli ID nie zostało przekazane, pobiera je z wiadomości Telegrama.
     if telegram_user_id is None:
         telegram_user_id = message.from_user.id
 
+    # Sprawdza, czy użytkownik jest zalogowany.
     if telegram_user_id not in user_tokens:
         await message.answer(
             "You are not logged in.",
@@ -414,8 +481,10 @@ async def cart(message: Message, telegram_user_id=None):
         )
         return
 
+    # Przygotowuje nagłówek z tokenem JWT.
     headers = auth_headers(telegram_user_id)
 
+    # Pobiera koszyk użytkownika z Django API.
     async with aiohttp.ClientSession() as session:
         async with session.get(
             f"{API_URL}/cart/",
@@ -432,12 +501,15 @@ async def cart(message: Message, telegram_user_id=None):
                 await message.answer("The shopping cart could not be loaded.")
                 return
 
+            # Pobiera pozycje koszyka z odpowiedzi JSON.
             cart_items = await response.json()
 
+    # Sprawdza, czy koszyk jest pusty.
     if not cart_items:
         await message.answer("Your cart is empty.")
         return
 
+    # Przygotowuje tekst z zawartością koszyka.
     text = "Your cart:\n\n"
 
     for item in cart_items:
@@ -461,9 +533,11 @@ async def cart(message: Message, telegram_user_id=None):
 
 async def order_start(message: Message, state: FSMContext, telegram_user_id=None):
     """Rozpoczyna składanie zamówienia i prosi o adres dostawy."""
+    
     if telegram_user_id is None:
         telegram_user_id = message.from_user.id
 
+    # Sprawdza, czy użytkownik jest zalogowany.
     if telegram_user_id not in user_tokens:
         await message.answer(
             "You are not logged in.",
@@ -471,6 +545,7 @@ async def order_start(message: Message, state: FSMContext, telegram_user_id=None
         )
         return
 
+    # Ustawia pierwszy etap formularza zamówienia - adres.
     await state.set_state(OrderForm.address)
     await message.answer("Please enter the delivery address:")
 
@@ -479,8 +554,13 @@ async def order_start(message: Message, state: FSMContext, telegram_user_id=None
 @dp.message(OrderForm.address)
 async def order_address(message: Message, state: FSMContext):
     """Zapisuje adres dostawy i prosi o numer telefonu."""
+    
+    # Zapisuje adres w pamięci FSM.
     await state.update_data(address=message.text)
+
+    # Przechodzi do następnego etapu - numeru telefonu.
     await state.set_state(OrderForm.phone)
+
     await message.answer("Please enter your phone number:")
 
 
@@ -490,6 +570,7 @@ async def order_phone(message: Message, state: FSMContext):
     """Wysyła zamówienie do API i wyświetla potwierdzenie zamówienia."""
     telegram_user_id = message.from_user.id
 
+    # Sprawdza, czy użytkownik nadal jest zalogowany.
     if telegram_user_id not in user_tokens:
         await message.answer(
             "You are not logged in.",
@@ -498,21 +579,27 @@ async def order_phone(message: Message, state: FSMContext):
         await state.clear()
         return
 
+    # Pobiera wcześniej zapisany adres z FSM.
     data = await state.get_data()
 
+    # Przygotowuje nagłówek z tokenem JWT.
     headers = auth_headers(telegram_user_id)
 
+    # Przygotowuje dane zamówienia wysyłane do Django API.
     order_data = {
         "address": data["address"],
         "phone": message.text
     }
 
+    # Wysyła zamówienie do endpointu create_order.
     async with aiohttp.ClientSession() as session:
         async with session.post(
             f"{API_URL}/order/create/",
             json=order_data,
             headers=headers
         ) as response:
+
+            # Obsługuje wygaśnięcie lub brak poprawnego tokenu.
             if response.status == 401:
                 await message.answer(
                     "Your session has expired.",
@@ -521,6 +608,7 @@ async def order_phone(message: Message, state: FSMContext):
                 await state.clear()
                 return
 
+            # Sprawdza, czy zamówienie zostało poprawnie utworzone.
             if response.status != 201:
                 error = await response.text()
                 await message.answer(
@@ -529,10 +617,14 @@ async def order_phone(message: Message, state: FSMContext):
                 await state.clear()
                 return
 
+            # Pobiera dane utworzonego zamówienia z odpowiedzi API.
             result = await response.json()
 
+    # Kończy proces składania zamówienia i czyści FSM.
     await state.clear()
 
+
+    # Wyświetla numer zamówienia i jego całkowitą wartość.
     await message.answer(
         "Your order has been placed!\n\n"
         f"ID Order: {result['order_id']}\n"
