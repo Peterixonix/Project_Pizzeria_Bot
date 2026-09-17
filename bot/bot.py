@@ -223,15 +223,19 @@ async def pizzas(message: Message):
         await message.answer("No pizzas available.")
         return
 
+    buttons = []
+
+    for pizza in pizzas_data:
+        button = InlineKeyboardButton(
+            text=pizza["name"],
+            callback_data=f"pizza:{pizza['id']}"
+        )
+
+        buttons.append([button])
+
     keyboard = InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(
-                text=pizza["name"],
-                callback_data=f"pizza:{pizza['id']}"
-            )]
-            for pizza in pizzas_data
-        ]
-    )
+        inline_keyboard=buttons
+)
 
     await message.answer("Choose a pizza:", reply_markup=keyboard)
 
@@ -255,15 +259,19 @@ async def select_pizza(callback: CallbackQuery):
         await callback.message.answer("No sizes available.")
         return
 
+    buttons = []
+
+    for size in sizes:
+        button = InlineKeyboardButton(
+            text=size["name"],
+            callback_data=f"size:{pizza_id}:{size['id']}"
+        )
+
+        buttons.append([button])
+
     keyboard = InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(
-                text=size["name"],
-                callback_data=f"size:{pizza_id}:{size['id']}"
-            )]
-            for size in sizes
-        ]
-    )
+        inline_keyboard=buttons
+)
 
     await callback.message.answer("Choose a size:", reply_markup=keyboard)
 
@@ -287,14 +295,18 @@ async def select_size(callback: CallbackQuery):
         await callback.message.answer("No crust types available.")
         return
 
+    buttons = []
+
+    for typecake in typecakes:
+        button = InlineKeyboardButton(
+            text=typecake["name"],
+            callback_data=f"typecake:{pizza_id}:{size_id}:{typecake['id']}"
+        )
+
+        buttons.append([button])
+
     keyboard = InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(
-                text=typecake["name"],
-                callback_data=f"typecake:{pizza_id}:{size_id}:{typecake['id']}"
-            )]
-            for typecake in typecakes
-        ]
+        inline_keyboard=buttons
     )
 
     await callback.message.answer("Choose a crust type:", reply_markup=keyboard)
@@ -307,14 +319,18 @@ async def select_typecake(callback: CallbackQuery):
     await callback.answer()
     _, pizza_id, size_id, typecake_id = callback.data.split(":")
 
+    buttons = []
+
+    for quantity in range(1, 5):
+        button = InlineKeyboardButton(
+            text=str(quantity),
+            callback_data=f"add:{pizza_id}:{size_id}:{typecake_id}:{quantity}"
+        )
+
+        buttons.append(button)
+
     keyboard = InlineKeyboardMarkup(
-        inline_keyboard=[[
-            InlineKeyboardButton(
-                text=str(quantity),
-                callback_data=f"add:{pizza_id}:{size_id}:{typecake_id}:{quantity}"
-            )
-            for quantity in range(1, 5)
-        ]]
+        inline_keyboard=[buttons]
     )
 
     await callback.message.answer(

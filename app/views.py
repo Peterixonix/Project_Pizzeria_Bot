@@ -102,16 +102,16 @@ def get_cart(request):
     """Pobiera zawartość koszyka zalogowanego użytkownika."""
     cart_items = Shopping.objects.filter(user=request.user)
 
-    data = [
-        {
+    data = []
+
+    for item in cart_items:
+        data.append({
             "id": item.id,
             "pizza": str(item.pizza),
             "size": str(item.size),
             "typecake": str(item.typecake),
-            "quantity": item.quantity
-        }
-        for item in cart_items
-    ]
+            "quantity": int(item.quantity)
+        })
 
     return Response(data, status=status.HTTP_200_OK)
 
@@ -189,12 +189,17 @@ def create_order(request):
     address = request.data.get("address")
     phone = request.data.get("phone")
 
-    for field, value in {"address": address, "phone": phone}.items():
-        if not value:
-            return Response(
-                {field: "This field is required."},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+    if not address:
+        return Response(
+            {"address": "This field is required."},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    if not phone:
+        return Response(
+            {"phone": "This field is required."},
+            status=status.HTTP_400_BAD_REQUEST
+        )
 
     cart_items = Shopping.objects.filter(user=user)
 
