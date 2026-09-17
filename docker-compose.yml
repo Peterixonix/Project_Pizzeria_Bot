@@ -1,28 +1,48 @@
 services:
+
+  # Baza danych PostgreSQL.
   db:
     image: postgres:17
     restart: unless-stopped
+
+    # Dane potrzebne do utworzenia i połączenia z bazą.
     environment:
       POSTGRES_DB: ${DB_NAME}
       POSTGRES_USER: ${DB_USER}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
+
+    # Przechowuje dane bazy nawet po zatrzymaniu kontenera.
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
+  # Aplikacja Django.
   web:
     build: .
+
+    # Uruchamia serwer Django na porcie 8000.
     command: python manage.py runserver 0.0.0.0:8000
+
+    # Udostępnia pliki projektu wewnątrz kontenera.
     volumes:
       - .:/app
+
+    # Udostępnia port Django na komputerze.
     ports:
       - "8000:8000"
+
+    # Pobiera zmienne środowiskowe z pliku .env.
     env_file:
       - .env
+
+    # Django łączy się z kontenerem bazy danych.
     environment:
       DB_HOST: db
       DB_PORT: 5432
+
+    # Kontener Django zależy od kontenera PostgreSQL.
     depends_on:
       - db
 
+# Wolumen przechowujący dane PostgreSQL.
 volumes:
   postgres_data:
