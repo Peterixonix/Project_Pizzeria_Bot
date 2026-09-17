@@ -21,10 +21,12 @@ from app.serializers import (
 )
 
 
+
 class RegisterView(generics.CreateAPIView):
     """Obsługuje rejestrację nowych użytkowników."""
     queryset = User.objects.all()
     serializer_class = RegisterSerializer
+
 
 
 class PizzaViewSet(viewsets.ModelViewSet):
@@ -33,10 +35,12 @@ class PizzaViewSet(viewsets.ModelViewSet):
     serializer_class = PizzaSerializer
 
 
+
 class SizeViewSet(viewsets.ModelViewSet):
     """Obsługuje operacje API związane z rozmiarami pizzy."""
     queryset = Size.objects.all()
     serializer_class = SizeSerializer
+
 
 
 class TypeCakeViewSet(viewsets.ModelViewSet):
@@ -47,11 +51,14 @@ class TypeCakeViewSet(viewsets.ModelViewSet):
 
 def validate_quantity(quantity):
     """Sprawdza, czy podana ilość jest prawidłową liczbą większą od zera."""
+    
+    # Próbuje zamienić podaną ilość na liczbę całkowitą.
     try:
         quantity = int(quantity)
     except (TypeError, ValueError):
         return None, "The quantity must be a number."
 
+    # Sprawdza, czy ilość jest większa od zera.
     if quantity < 1:
         return None, "The quantity must be greater than 0."
 
@@ -62,6 +69,8 @@ def validate_quantity(quantity):
 @permission_classes([IsAuthenticated])
 def add_to_cart(request):
     """Dodaje wybraną pizzę do koszyka zalogowanego użytkownika."""
+    
+    # Pobiera i sprawdza ilość produktu.
     quantity, error = validate_quantity(
         request.data.get("quantity", 1)
     )
@@ -72,6 +81,7 @@ def add_to_cart(request):
             status=status.HTTP_400_BAD_REQUEST
         )
 
+    # Pobiera z bazy wybraną pizzę, rozmiar i rodzaj ciasta.
     try:
         pizza = Pizza.objects.get(id=request.data.get("pizza"))
         size = Size.objects.get(id=request.data.get("size"))
@@ -82,6 +92,7 @@ def add_to_cart(request):
             status=status.HTTP_400_BAD_REQUEST
         )
 
+    # Tworzy nową pozycję w koszyku użytkownika.
     Shopping.objects.create(
         user=request.user,
         pizza=pizza,
@@ -90,6 +101,7 @@ def add_to_cart(request):
         quantity=quantity
     )
 
+    # Zwraca informację o poprawnym dodaniu produktu do koszyka.
     return Response(
         {"message": "Added to cart."},
         status=status.HTTP_201_CREATED
@@ -100,8 +112,11 @@ def add_to_cart(request):
 @permission_classes([IsAuthenticated])
 def get_cart(request):
     """Pobiera zawartość koszyka zalogowanego użytkownika."""
+
+    # Pobiera z bazy wszystkie pozycje koszyka zalogowanego użytkownika.
     cart_items = Shopping.objects.filter(user=request.user)
 
+    # Przygotowuje listę danych, która zostanie zwrócona przez API.
     data = []
 
     for item in cart_items:
@@ -113,6 +128,7 @@ def get_cart(request):
             "quantity": int(item.quantity)
         })
 
+    # Zwraca zawartość koszyka.
     return Response(data, status=status.HTTP_200_OK)
 
 
@@ -120,6 +136,8 @@ def get_cart(request):
 @permission_classes([IsAuthenticated])
 def remove_from_cart(request, item_id):
     """Usuwa wybraną pozycję z koszyka zalogowanego użytkownika."""
+    
+    # Wyszukuje pozycję należącą do zalogowanego użytkownika.
     try:
         item = Shopping.objects.get(
             id=item_id,
@@ -131,6 +149,7 @@ def remove_from_cart(request, item_id):
             status=status.HTTP_404_NOT_FOUND
         )
 
+    # Usuwa znalezioną pozycję z koszyka.
     item.delete()
 
     return Response(
@@ -143,6 +162,8 @@ def remove_from_cart(request, item_id):
 @permission_classes([IsAuthenticated])
 def update_cart_item(request, item_id):
     """Zmienia ilość wybranej pozycji w koszyku."""
+    
+    # Wyszukuje pozycję należącą do zalogowanego użytkownika.
     try:
         item = Shopping.objects.get(
             id=item_id,
@@ -154,12 +175,14 @@ def update_cart_item(request, item_id):
             status=status.HTTP_404_NOT_FOUND
         )
 
+    # Sprawdza, czy w żądaniu została podana ilość.
     if "quantity" not in request.data:
         return Response(
             {"quantity": "This field is required."},
             status=status.HTTP_400_BAD_REQUEST
         )
 
+    # Sprawdza poprawność nowej ilości.
     quantity, error = validate_quantity(request.data.get("quantity"))
 
     if error:
@@ -168,6 +191,7 @@ def update_cart_item(request, item_id):
             status=status.HTTP_400_BAD_REQUEST
         )
 
+    # Zmienia ilość produktu i zapisuje zmianę w bazie.
     item.quantity = quantity
     item.save()
 
@@ -185,30 +209,37 @@ def update_cart_item(request, item_id):
 @permission_classes([IsAuthenticated])
 def create_order(request):
     """Tworzy zamówienie na podstawie zawartości koszyka użytkownika."""
+    
+    # Pobiera użytkownika, adres i numer telefonu.
     user = request.user
     address = request.data.get("address")
     phone = request.data.get("phone")
 
+    # Sprawdza, czy podano adres.
     if not address:
         return Response(
             {"address": "This field is required."},
             status=status.HTTP_400_BAD_REQUEST
         )
 
+    # Sprawdza, czy podano numer telefonu.
     if not phone:
         return Response(
             {"phone": "This field is required."},
             status=status.HTTP_400_BAD_REQUEST
         )
 
+    # Pobiera wszystkie produkty z koszyka użytkownika.
     cart_items = Shopping.objects.filter(user=user)
 
+    # Sprawdza, czy koszyk nie jest pusty.
     if not cart_items.exists():
         return Response(
             {"error": "Your cart is empty."},
             status=status.HTTP_400_BAD_REQUEST
         )
 
+    # Tworzy nowe zamówienie.
     order = Order.objects.create(
         user=user,
         adres=address,
@@ -216,9 +247,13 @@ def create_order(request):
         value=0
     )
 
+    # Ustawia początkową wartość całego zamówienia.
     total_value = Decimal("0.00")
 
+    # Przechodzi przez wszystkie produkty znajdujące się w koszyku.
     for item in cart_items:
+
+        # Wyszukuje cenę dla wybranej pizzy, rozmiaru i rodzaju ciasta.
         try:
             price = Price.objects.get(
                 pizza=item.pizza,
@@ -226,6 +261,7 @@ def create_order(request):
                 typecake=item.typecake
             )
         except Price.DoesNotExist:
+             # Usuwa utworzone zamówienie, jeśli nie znaleziono ceny.
             order.delete()
 
             return Response(
@@ -237,9 +273,11 @@ def create_order(request):
                 },
                 status=status.HTTP_400_BAD_REQUEST
             )
-
+        
+        # Dodaje cenę pozycji pomnożoną przez jej ilość do wartości zamówienia.
         total_value += price.price * item.quantity
 
+        # Tworzy pozycję należącą do zamówienia.
         OrderItem.objects.create(
             order=order,
             pizza=item.pizza,
@@ -249,11 +287,14 @@ def create_order(request):
             price=price.price
         )
 
+    # Zapisuje obliczoną wartość całego zamówienia.
     order.value = total_value
     order.save()
 
+    # Po poprawnym utworzeniu zamówienia opróżnia koszyk użytkownika.
     cart_items.delete()
 
+    # Zwraca informację o utworzonym zamówieniu.
     return Response(
         {
             "message": "The order has been placed.",
