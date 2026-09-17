@@ -3,657 +3,717 @@ import aiohttp
 import os
 
 from dotenv import load_dotenv
-
-from aiogram import Bot, Dispatcher, F
-from aiogram.filters import CommandStart
-from aiogram.types import (
-    Message,
-    CallbackQuery,
-    InlineKeyboardButton,
-    InlineKeyboardMarkup,
-)
-from aiogram.fsm.state import State, StatesGroup
-from aiogram.fsm.context import FSMContext
-from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram import Bot, Dispatcher
+from aiogram.filters import Command, CommandStart
+from aiogram.types import Message
 
 
+# Configuration
 
-# CONFIGURATION
-
-# Wczytuje zmienne środowiskowe z pliku .env.
 load_dotenv()
 
-# Pobiera token bota Telegram ze zmiennej środowiskowej.
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-
-# Ustawia adres API Django, z którym komunikuje się bot.
 API_URL = "http://127.0.0.1:8000/api"
 
-
-
-# BOT / DISPATCHER
-
-# Tworzy obiekt bota przy użyciu tokenu pobranego z pliku .env.
 bot = Bot(token=BOT_TOKEN)
+dp = Dispatcher()
 
-# Tworzy dispatcher odpowiedzialny za obsługę zdarzeń i przechowywanie stanów FSM.
-dp = Dispatcher(storage=MemoryStorage())
 
-# Przechowuje tokeny JWT zalogowanych użytkowników według ich ID z Telegrama.
+# Przechowuje tokeny zalogowanych użytkowników.
 user_tokens = {}
 
-def button_keyboard(text, callback_data):
-    """Tworzy klawiaturę z jednym przyciskiem."""
-    return InlineKeyboardMarkup(
-        inline_keyboard=[[
-            InlineKeyboardButton(text=text, callback_data=callback_data)
-        ]]
-    )
+# Przechowuje tymczasowe dane użytkowników.
+user_data = {}
 
-def logged_keyboard():
-    """Tworzy menu wyświetlane po zalogowaniu użytkownika."""
-    return InlineKeyboardMarkup(
-        inline_keyboard=[[
-            InlineKeyboardButton(text="Pizza", callback_data="menu_pizza"),
-            InlineKeyboardButton(text="Log out", callback_data="menu_logout")
-        ]]
-    )
 
-def auth_headers(telegram_user_id):
-    """Tworzy nagłówek autoryzacji z tokenem JWT użytkownika."""
-    
-    # Pobiera access token użytkownika i umieszcza go w nagłówku Authorization.
+def get_headers(user_id):
+    """Tworzy nagłówek z tokenem JWT."""
+
+    token = user_tokens[user_id]["access"]
+
     return {
-        "Authorization": f"Bearer {user_tokens[telegram_user_id]['access']}"
+        "Authorization": f"Bearer {token}"
     }
 
 
-
-# FSM STATES
-
-
-# Określa kolejne etapy procesu logowania.
-class LoginForm(StatesGroup):
-    username = State()
-    password = State()
-
-# Określa kolejne etapy procesu składania zamówienia.
-class OrderForm(StatesGroup):
-    address = State()
-    phone = State()
-
-
-
-# MAIN MENU
-
-
+# Start
 
 @dp.message(CommandStart())
 async def start(message: Message):
-    """Wyświetla główne menu po uruchomieniu bota za pomocą /start."""
-    
-    keyboard = InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(
-                text="Pizza", 
-                callback_data="menu_pizza")],
-            [InlineKeyboardButton(
-                text="Log in", 
-                callback_data="menu_login")],
-            [InlineKeyboardButton(
-                text="Log out", 
-                callback_data="menu_logout")]
-        ]
-    )
+    """Wyświetla dostępne komendy bota."""
 
-    # Wysyła użytkownikowi wiadomość wraz z menu.
     await message.answer(
-        "Welcome in pizzeria!\n\nSelect option:",
-        reply_markup=keyboard
+        "Welcome in pizzeria!\n\n"
+        "/register - create account\n"
+        "/login - log in\n"
+        "/pizza - choose pizza\n"
+        "/cart - show cart\n"
+        "/order - create order\n"
+        "/logout - log out"
     )
 
 
+# Register
 
-@dp.callback_query(F.data == "menu_pizza")
-async def menu_pizza(callback: CallbackQuery):
-    """Obsługuje przycisk Pizza i sprawdza, czy użytkownik jest zalogowany."""
-    
+@dp.message(Command("register"))
+async def register(message: Message):
+    """Rozpoczyna rejestrację użytkownika."""
 
-    if callback.from_user.id not in user_tokens:
-        await callback.message.answer(
-            "You must log in first.",
-            reply_markup=button_keyboard("Log in", "menu_login")
-        )
-        await callback.answer()
-        return
+    user_id = message.from_user.id
 
-
-    # Potwierdza obsługę przycisku i przechodzi do listy pizz.
-    await callback.answer()
-    await pizzas(callback.message)
-
-
-
-@dp.callback_query(F.data == "menu_cart")
-async def menu_cart(callback: CallbackQuery):
-    """Otwiera koszyk zalogowanego użytkownika."""
-    await callback.answer()
-    await cart(callback.message, callback.from_user.id)
-
-
-
-@dp.callback_query(F.data == "menu_order")
-async def menu_order(callback: CallbackQuery, state: FSMContext):
-    """Rozpoczyna proces składania zamówienia."""
-    await callback.answer()
-    await order_start(callback.message, state, callback.from_user.id)
-
-
-
-@dp.callback_query(F.data == "menu_login")
-async def menu_login(callback: CallbackQuery, state: FSMContext):
-    """Rozpoczyna proces logowania użytkownika."""
-    await callback.answer()
-    # Ustawia pierwszy etap logowania - podanie nazwy użytkownika.
-    await state.set_state(LoginForm.username)
-    await callback.message.answer("Please enter your account username:")
-
-
-
-@dp.callback_query(F.data == "menu_logout")
-async def menu_logout(callback: CallbackQuery):
-    """Wylogowuje użytkownika poprzez usunięcie zapisanych tokenów."""
-    await callback.answer()
-    telegram_user_id = callback.from_user.id
-
-    # Sprawdza, czy użytkownik jest zalogowany.
-    if telegram_user_id not in user_tokens:
-        await callback.message.answer("You are not logged in.")
-        return
-
-    # Usuwa zapisane tokeny użytkownika.
-    del user_tokens[telegram_user_id]
-
-    await callback.message.answer(
-        "Logged out successfully!",
-        reply_markup=button_keyboard("Log in", "menu_login")
-    )
-
-
-
-
-# LOGIN / LOGOUT
-
-
-@dp.message(LoginForm.username)
-async def login_username(message: Message, state: FSMContext):
-    """Zapisuje nazwę użytkownika i przechodzi do podania hasła."""
-
-    # Tymczasowo zapisuje nazwę użytkownika w FSM.
-    await state.update_data(username=message.text)
-
-    # Przechodzi do następnego etapu - podania hasła.
-    await state.set_state(LoginForm.password)
-
-    await message.answer("Please enter your password:")
-
-
-
-@dp.message(LoginForm.password)
-async def login_password(message: Message, state: FSMContext):
-    """Loguje użytkownika przez API i zapisuje otrzymane tokeny JWT."""
-    
-     # Pobiera wcześniej zapisaną nazwę użytkownika z FSM.
-    data = await state.get_data()
-
-    # Tworzy asynchroniczną sesję HTTP i wysyła login i hasło do endpointu logowania Django.
-    async with aiohttp.ClientSession() as session:
-        async with session.post(
-            f"{API_URL}/login/",
-            json={
-                "username": data["username"],
-                "password": message.text
-            }
-        ) as response:
-
-            # Sprawdza, czy logowanie zakończyło się powodzeniem.
-            if response.status != 200:
-                await message.answer("Incorrect username or password.",
-                reply_markup=button_keyboard("Log in", "menu_login")
-                )
-                await state.clear()
-                return
-
-            tokens = await response.json()
-
-    # Zapisuje access i refresh token dla użytkownika Telegrama.
-    user_tokens[message.from_user.id] = {
-        "access": tokens["access"],
-        "refresh": tokens["refresh"]
+    # Bot będzie teraz czekał na nazwę użytkownika.
+    user_data[user_id] = {
+        "action": "register",
+        "step": "username"
     }
 
-    # Czyści stan procesu logowania.
-    await state.clear()
-
-    # Odpowiedź po pomyślnym zalogowaniu
-    await message.answer(
-        "Logged in successfully!",
-        reply_markup=logged_keyboard()
-    )
+    await message.answer("Enter your username:")
 
 
-# PIZZA
+# Login
+
+@dp.message(Command("login"))
+async def login(message: Message):
+    """Rozpoczyna logowanie użytkownika."""
+
+    user_id = message.from_user.id
+
+    # Bot będzie teraz czekał na nazwę użytkownika.
+    user_data[user_id] = {
+        "action": "login",
+        "step": "username"
+    }
+
+    await message.answer("Enter your username:")
 
 
-async def pizzas(message: Message):
-    """Pobiera pizze z API i wyświetla je jako przyciski."""
+# Logout
 
-    # Wysyła zapytanie GET do API w celu pobrania dostępnych pizz.
-    async with aiohttp.ClientSession() as session:
-        async with session.get(f"{API_URL}/pizza/") as response:
-            if response.status != 200:
-                await message.answer("Failed to load pizzas.")
-                return
+@dp.message(Command("logout"))
+async def logout(message: Message):
+    """Wylogowuje użytkownika."""
 
-            # Zamienia odpowiedź JSON na dane Pythona.
-            pizzas_data = await response.json()
+    user_id = message.from_user.id
 
-    # Sprawdza, czy API zwróciło jakieś pizze.
-    if not pizzas_data:
+    # Sprawdza, czy użytkownik jest zalogowany.
+    if user_id not in user_tokens:
+        await message.answer("You are not logged in.")
+        return
+
+    # Usuwa tokeny i dane użytkownika.
+    del user_tokens[user_id]
+    user_data.pop(user_id, None)
+
+    await message.answer("Logged out successfully.")
+
+
+# Pizza
+
+@dp.message(Command("pizza"))
+async def pizza(message: Message):
+    """Pobiera z API listę pizz."""
+
+    user_id = message.from_user.id
+
+    # Tylko zalogowany użytkownik może korzystać z koszyka.
+    if user_id not in user_tokens:
+        await message.answer("You must log in first. Use /login.")
+        return
+
+    try:
+        # Pobiera pizze z Django API.
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                f"{API_URL}/pizza/"
+            ) as response:
+
+                if response.status != 200:
+                    await message.answer("Failed to load pizzas.")
+                    return
+
+                pizzas = await response.json()
+
+    except aiohttp.ClientError:
+        await message.answer("Cannot connect to the server.")
+        return
+
+    if not pizzas:
         await message.answer("No pizzas available.")
         return
 
-    buttons = []
+    # Tworzy listę pizz wyświetlaną użytkownikowi.
+    text = "Available pizzas:\n\n"
+    pizza_ids = []
 
-    # Dla każdej pizzy tworzy osobny przycisk.
-    for pizza in pizzas_data:
-        button = InlineKeyboardButton(
-            text=pizza["name"],
-            callback_data=f"pizza:{pizza['id']}"
-        )
+    for item in pizzas:
+        text += f"{item['id']}. {item['name']}\n"
+        pizza_ids.append(item["id"])
 
-        buttons.append([button])
+    text += "\nEnter pizza ID:"
 
-    # Tworzy klawiaturę z przygotowanych przycisków.
-    keyboard = InlineKeyboardMarkup(
-        inline_keyboard=buttons
-)
-
-    await message.answer("Choose a pizza:", reply_markup=keyboard)
-
-
-
-@dp.callback_query(F.data.startswith("pizza:"))
-async def select_pizza(callback: CallbackQuery):
-    """Obsługuje wybór pizzy i wyświetla dostępne rozmiary."""
-    await callback.answer()
-
-    # Pobiera ID wybranej pizzy z callback_data przycisku.
-    pizza_id = callback.data.split(":")[1]
-
-    # Pobiera dostępne rozmiary z API.
-    async with aiohttp.ClientSession() as session:
-        async with session.get(f"{API_URL}/size/") as response:
-            if response.status != 200:
-                await callback.message.answer("Failed to load sizes.")
-                return
-
-            sizes = await response.json()
-
-    if not sizes:
-        await callback.message.answer("No sizes available.")
-        return
-
-    buttons = []
-
-    # Tworzy przycisk dla każdego dostępnego rozmiaru.
-    for size in sizes:
-        button = InlineKeyboardButton(
-            text=size["name"],
-            callback_data=f"size:{pizza_id}:{size['id']}"
-        )
-
-        buttons.append([button])
-
-    keyboard = InlineKeyboardMarkup(
-        inline_keyboard=buttons
-)
-
-    await callback.message.answer("Choose a size:", reply_markup=keyboard)
-
-
-
-@dp.callback_query(F.data.startswith("size:"))
-async def select_size(callback: CallbackQuery):
-    """Obsługuje wybór rozmiaru i wyświetla dostępne rodzaje ciasta."""
-    await callback.answer()
-
-    # Pobiera ID pizzy i rozmiaru z callback_data.
-    _, pizza_id, size_id = callback.data.split(":")
-
-    # Pobiera dostępne rodzaje ciasta z API.
-    async with aiohttp.ClientSession() as session:
-        async with session.get(f"{API_URL}/typecake/") as response:
-            if response.status != 200:
-                await callback.message.answer("Failed to load crust types.")
-                return
-
-            typecakes = await response.json()
-
-    if not typecakes:
-        await callback.message.answer("No crust types available.")
-        return
-
-    buttons = []
-
-    # Tworzy przycisk dla każdego rodzaju ciasta.
-    for typecake in typecakes:
-        button = InlineKeyboardButton(
-            text=typecake["name"],
-            callback_data=f"typecake:{pizza_id}:{size_id}:{typecake['id']}"
-        )
-
-        buttons.append([button])
-
-    keyboard = InlineKeyboardMarkup(
-        inline_keyboard=buttons
-    )
-
-    await callback.message.answer("Choose a crust type:", reply_markup=keyboard)
-
-
-
-@dp.callback_query(F.data.startswith("typecake:"))
-async def select_typecake(callback: CallbackQuery):
-    """Obsługuje wybór rodzaju ciasta i wyświetla możliwe ilości."""
-    await callback.answer()
-
-    # Pobiera wcześniej wybrane ID pizzy, rozmiaru i rodzaju ciasta.
-    _, pizza_id, size_id, typecake_id = callback.data.split(":")
-
-    buttons = []
-
-    # Tworzy przyciski pozwalające wybrać od 1 do 4 sztuk.
-    for quantity in range(1, 5):
-        button = InlineKeyboardButton(
-            text=str(quantity),
-            callback_data=f"add:{pizza_id}:{size_id}:{typecake_id}:{quantity}"
-        )
-
-        buttons.append(button)
-
-    keyboard = InlineKeyboardMarkup(
-        inline_keyboard=[buttons]
-    )
-
-    await callback.message.answer(
-        "Choose quantity:",
-        reply_markup=keyboard
-    )
-
-
-
-# ADD TO CART
-
-
-
-@dp.callback_query(F.data.startswith("add:"))
-async def add_to_cart(callback: CallbackQuery):
-    """Dodaje wybraną konfigurację pizzy do koszyka użytkownika."""
-    
-    telegram_user_id = callback.from_user.id
-
-    # Sprawdza, czy użytkownik jest zalogowany.
-    if telegram_user_id not in user_tokens:
-        await callback.message.answer(
-            "You must log in first.",
-            reply_markup=button_keyboard("Log in", "menu_login")
-        )
-        await callback.answer()
-        return
-
-    # Pobiera dane wybrane wcześniej przez użytkownika.
-    _, pizza_id, size_id, typecake_id, quantity = callback.data.split(":")
-
-    
-    # Przygotowuje nagłówek z tokenem JWT.
-    headers = auth_headers(telegram_user_id)
-
-
-    # Przygotowuje dane, które zostaną wysłane do API.
-    data = {
-        "pizza": int(pizza_id),
-        "size": int(size_id),
-        "typecake": int(typecake_id),
-        "quantity": int(quantity)
+    # Zapamiętuje dostępne ID pizz.
+    user_data[user_id] = {
+        "action": "pizza",
+        "step": "pizza",
+        "pizza_ids": pizza_ids
     }
 
-    # Wysyła dane do endpointu dodającego produkt do koszyka.
-    async with aiohttp.ClientSession() as session:
-        async with session.post(
-            f"{API_URL}/cart/add/",
-            json=data,
-            headers=headers
-        ) as response:
-
-            # Sprawdza brak poprawnego uwierzytelnienia (401).
-            if response.status == 401:
-                await callback.message.answer(
-                    "Your session has expired.",
-                    reply_markup=button_keyboard("Log in", "menu_login")
-                )
-                await callback.answer()
-                return
-
-            # Sprawdza, czy produkt został poprawnie utworzony w koszyku.
-            if response.status != 201:
-                error = await response.text()
-                await callback.message.answer(
-                    f"Unable to add to cart.\n{error}"
-                )
-                await callback.answer()
-                return
-
-    await callback.message.answer(
-        "The pizza has been added to your cart!",
-        reply_markup=button_keyboard("Cart", "menu_cart")
-    )
-    await callback.answer()
+    await message.answer(text)
 
 
+# Cart
 
-# CART
+@dp.message(Command("cart"))
+async def cart(message: Message):
+    """Pobiera z API i wyświetla koszyk użytkownika."""
 
+    user_id = message.from_user.id
 
-
-async def cart(message: Message, telegram_user_id=None):
-    """Pobiera z API i wyświetla zawartość koszyka użytkownika."""
-
-    # Jeśli ID nie zostało przekazane, pobiera je z wiadomości Telegrama.
-    if telegram_user_id is None:
-        telegram_user_id = message.from_user.id
-
-    # Sprawdza, czy użytkownik jest zalogowany.
-    if telegram_user_id not in user_tokens:
-        await message.answer(
-            "You are not logged in.",
-            reply_markup=button_keyboard("Log in", "menu_login")
-        )
+    if user_id not in user_tokens:
+        await message.answer("You must log in first. Use /login.")
         return
 
-    # Przygotowuje nagłówek z tokenem JWT.
-    headers = auth_headers(telegram_user_id)
+    # Tworzy nagłówek z tokenem JWT.
+    headers = get_headers(user_id)
 
-    # Pobiera koszyk użytkownika z Django API.
-    async with aiohttp.ClientSession() as session:
-        async with session.get(
-            f"{API_URL}/cart/",
-            headers=headers
-        ) as response:
-            if response.status == 401:
-                await message.answer(
-                    "Your session has expired.",
-                    reply_markup=button_keyboard("Log in", "menu_login")
-                )
-                return
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                f"{API_URL}/cart/",
+                headers=headers
+            ) as response:
 
-            if response.status != 200:
-                await message.answer("The shopping cart could not be loaded.")
-                return
+                # Status 401 oznacza problem z autoryzacją.
+                if response.status == 401:
+                    user_tokens.pop(user_id, None)
 
-            # Pobiera pozycje koszyka z odpowiedzi JSON.
-            cart_items = await response.json()
+                    await message.answer(
+                        "Your session has expired. Use /login."
+                    )
+                    return
 
-    # Sprawdza, czy koszyk jest pusty.
-    if not cart_items:
+                if response.status != 200:
+                    await message.answer("Could not load cart.")
+                    return
+
+                items = await response.json()
+
+    except aiohttp.ClientError:
+        await message.answer("Cannot connect to the server.")
+        return
+
+    if not items:
         await message.answer("Your cart is empty.")
         return
 
-    # Przygotowuje tekst z zawartością koszyka.
+    # Tworzy wiadomość z zawartością koszyka.
     text = "Your cart:\n\n"
 
-    for item in cart_items:
+    for item in items:
         text += (
-            f"{item['pizza']}\n"
+            f"Pizza: {item['pizza']}\n"
             f"Size: {item['size']}\n"
-            f"Cake: {item['typecake']}\n"
-            f"Quantity: {item['quantity']}\n"
-            f"ID position: {item['id']}\n\n"
+            f"Crust: {item['typecake']}\n"
+            f"Quantity: {item['quantity']}\n\n"
         )
 
-    await message.answer(
-        text,
-        reply_markup=button_keyboard("Order", "menu_order")
-    )
+    text += "Use /order to create an order."
+
+    await message.answer(text)
 
 
-# ORDER
+# Order
 
+@dp.message(Command("order"))
+async def order(message: Message):
+    """Rozpoczyna składanie zamówienia."""
 
+    user_id = message.from_user.id
 
-async def order_start(message: Message, state: FSMContext, telegram_user_id=None):
-    """Rozpoczyna składanie zamówienia i prosi o adres dostawy."""
-    
-    if telegram_user_id is None:
-        telegram_user_id = message.from_user.id
-
-    # Sprawdza, czy użytkownik jest zalogowany.
-    if telegram_user_id not in user_tokens:
-        await message.answer(
-            "You are not logged in.",
-            reply_markup=button_keyboard("Log in", "menu_login")
-        )
+    if user_id not in user_tokens:
+        await message.answer("You must log in first. Use /login.")
         return
 
-    # Ustawia pierwszy etap formularza zamówienia - adres.
-    await state.set_state(OrderForm.address)
-    await message.answer("Please enter the delivery address:")
-
-
-
-@dp.message(OrderForm.address)
-async def order_address(message: Message, state: FSMContext):
-    """Zapisuje adres dostawy i prosi o numer telefonu."""
-    
-    # Zapisuje adres w pamięci FSM.
-    await state.update_data(address=message.text)
-
-    # Przechodzi do następnego etapu - numeru telefonu.
-    await state.set_state(OrderForm.phone)
-
-    await message.answer("Please enter your phone number:")
-
-
-
-@dp.message(OrderForm.phone)
-async def order_phone(message: Message, state: FSMContext):
-    """Wysyła zamówienie do API i wyświetla potwierdzenie zamówienia."""
-    telegram_user_id = message.from_user.id
-
-    # Sprawdza, czy użytkownik nadal jest zalogowany.
-    if telegram_user_id not in user_tokens:
-        await message.answer(
-            "You are not logged in.",
-            reply_markup=button_keyboard("Log in", "menu_login")
-        )
-        await state.clear()
-        return
-
-    # Pobiera wcześniej zapisany adres z FSM.
-    data = await state.get_data()
-
-    # Przygotowuje nagłówek z tokenem JWT.
-    headers = auth_headers(telegram_user_id)
-
-    # Przygotowuje dane zamówienia wysyłane do Django API.
-    order_data = {
-        "address": data["address"],
-        "phone": message.text
+    # Pierwszym etapem zamówienia jest podanie adresu.
+    user_data[user_id] = {
+        "action": "order",
+        "step": "address"
     }
 
-    # Wysyła zamówienie do endpointu create_order.
-    async with aiohttp.ClientSession() as session:
-        async with session.post(
-            f"{API_URL}/order/create/",
-            json=order_data,
-            headers=headers
-        ) as response:
-
-            # Obsługuje wygaśnięcie lub brak poprawnego tokenu.
-            if response.status == 401:
-                await message.answer(
-                    "Your session has expired.",
-                    reply_markup=button_keyboard("Log in", "menu_login")
-                )
-                await state.clear()
-                return
-
-            # Sprawdza, czy zamówienie zostało poprawnie utworzone.
-            if response.status != 201:
-                error = await response.text()
-                await message.answer(
-                    f"The order could not be placed.\n{error}"
-                )
-                await state.clear()
-                return
-
-            # Pobiera dane utworzonego zamówienia z odpowiedzi API.
-            result = await response.json()
-
-    # Kończy proces składania zamówienia i czyści FSM.
-    await state.clear()
+    await message.answer("Enter delivery address:")
 
 
-    # Wyświetla numer zamówienia i jego całkowitą wartość.
-    await message.answer(
-        "Your order has been placed!\n\n"
-        f"ID Order: {result['order_id']}\n"
-        f"Total: {result['value']} zł",
-        reply_markup=InlineKeyboardMarkup(
-            inline_keyboard=[[
-                InlineKeyboardButton(
-                    text="Pizza", callback_data="menu_pizza"
-                ),
-                InlineKeyboardButton(
-                    text="Log out", callback_data="menu_logout"
-                )
-            ]]
+# Text messages
+
+@dp.message()
+async def text_message(message: Message):
+    """
+    Obsługuje dane wpisywane przez użytkownika podczas
+    rejestracji, logowania, wyboru pizzy i zamówienia.
+    """
+
+    user_id = message.from_user.id
+
+    # Bot nie oczekuje obecnie żadnych danych.
+    if user_id not in user_data:
+        await message.answer("Use /start to see available commands.")
+        return
+
+    data = user_data[user_id]
+    action = data["action"]
+    step = data["step"]
+    text = message.text.strip()
+
+
+    # REGISTER - USERNAME
+
+    if action == "register" and step == "username":
+
+    # Nazwa użytkownika musi mieć minimum 3 znaki.
+        if len(text) < 3:
+            await message.answer(
+                "Username must have at least 3 characters."
+            )
+            return
+
+        user_data[user_id]["username"] = text
+        user_data[user_id]["step"] = "email"
+
+        await message.answer("Enter your email:")
+        return
+
+    # REGISTER - EMAIL
+
+    if action == "register" and step == "email":
+
+        # Prosta walidacja adresu email.
+        if "@" not in text or "." not in text:
+            await message.answer("Enter a valid email address.")
+            return
+
+        user_data[user_id]["email"] = text
+        user_data[user_id]["step"] = "password"
+
+        await message.answer("Enter your password:")
+        return
+    # REGISTER - PASSWORD
+
+    if action == "register" and step == "password":
+
+        # Hasło musi mieć minimum 8 znaków.
+        if len(text) < 8:
+            await message.answer(
+                "Password must have at least 8 characters."
+            )
+            return
+
+        username = data["username"]
+        email = data["email"]
+
+        register_data = {
+            "username": username,
+            "email": email,
+            "password": text
+        }
+
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    f"{API_URL}/register/",
+                    json=register_data
+                ) as response:
+
+                    if response.status != 201:
+                        error = await response.text()
+
+                        await message.answer(
+                            f"Registration failed.\n{error}"
+                        )
+                        return
+
+        except aiohttp.ClientError:
+            await message.answer("Cannot connect to the server.")
+            return
+
+        del user_data[user_id]
+
+        await message.answer(
+            "Account created successfully!\n"
+            "Use /login to log in."
         )
-    )
+        return
 
 
+    # LOGIN - USERNAME
 
-# RUN BOT
+    if action == "login" and step == "username":
+
+        if not text:
+            await message.answer("Username cannot be empty.")
+            return
+
+        user_data[user_id]["username"] = text
+        user_data[user_id]["step"] = "password"
+
+        await message.answer("Enter your password:")
+        return
 
 
-async def main(): 
-    """Uruchamia bota Telegram i rozpoczyna odbieranie wiadomości.""" 
-    print("Bot is running...") 
-    await dp.start_polling(bot) 
- 
- 
+    # LOGIN - PASSWORD
+
+    if action == "login" and step == "password":
+
+        if not text:
+            await message.answer("Password cannot be empty.")
+            return
+
+        username = data["username"]
+
+        try:
+            # Wysyła login i hasło do API.
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    f"{API_URL}/login/",
+                    json={
+                        "username": username,
+                        "password": text
+                    }
+                ) as response:
+
+                    if response.status != 200:
+                        await message.answer(
+                            "Incorrect username or password."
+                        )
+                        return
+
+                    # API zwraca tokeny JWT.
+                    tokens = await response.json()
+
+        except aiohttp.ClientError:
+            await message.answer("Cannot connect to the server.")
+            return
+
+        # Zapisuje tokeny użytkownika.
+        user_tokens[user_id] = tokens
+        del user_data[user_id]
+
+        await message.answer(
+            "Logged in successfully!\n"
+            "Use /pizza to choose a pizza."
+        )
+        return
+
+
+    # PIZZA - PIZZA ID
+
+    if action == "pizza" and step == "pizza":
+
+        # Sprawdza, czy użytkownik podał liczbę.
+        if not text.isdigit():
+            await message.answer("Pizza ID must be a number.")
+            return
+
+        pizza_id = int(text)
+
+        # Sprawdza, czy pizza istnieje.
+        if pizza_id not in data["pizza_ids"]:
+            await message.answer("Pizza with this ID does not exist.")
+            return
+
+        user_data[user_id]["pizza_id"] = pizza_id
+
+        try:
+            # Pobiera dostępne rozmiary z API.
+            async with aiohttp.ClientSession() as session:
+                async with session.get(
+                    f"{API_URL}/size/"
+                ) as response:
+
+                    if response.status != 200:
+                        await message.answer("Failed to load sizes.")
+                        return
+
+                    sizes = await response.json()
+
+        except aiohttp.ClientError:
+            await message.answer("Cannot connect to the server.")
+            return
+
+        if not sizes:
+            await message.answer("No sizes available.")
+            return
+
+        text_sizes = "Available sizes:\n\n"
+        size_ids = []
+
+        for size in sizes:
+            text_sizes += f"{size['id']}. {size['name']}\n"
+            size_ids.append(size["id"])
+
+        text_sizes += "\nEnter size ID:"
+
+        # Przechodzi do wyboru rozmiaru.
+        user_data[user_id]["size_ids"] = size_ids
+        user_data[user_id]["step"] = "size"
+
+        await message.answer(text_sizes)
+        return
+
+
+    # PIZZA - SIZE ID
+
+    if action == "pizza" and step == "size":
+
+        if not text.isdigit():
+            await message.answer("Size ID must be a number.")
+            return
+
+        size_id = int(text)
+
+        if size_id not in data["size_ids"]:
+            await message.answer("Size with this ID does not exist.")
+            return
+
+        user_data[user_id]["size_id"] = size_id
+
+        try:
+            # Pobiera dostępne rodzaje ciasta.
+            async with aiohttp.ClientSession() as session:
+                async with session.get(
+                    f"{API_URL}/typecake/"
+                ) as response:
+
+                    if response.status != 200:
+                        await message.answer(
+                            "Failed to load crust types."
+                        )
+                        return
+
+                    crusts = await response.json()
+
+        except aiohttp.ClientError:
+            await message.answer("Cannot connect to the server.")
+            return
+
+        if not crusts:
+            await message.answer("No crust types available.")
+            return
+
+        text_crusts = "Available crust types:\n\n"
+        crust_ids = []
+
+        for crust in crusts:
+            text_crusts += f"{crust['id']}. {crust['name']}\n"
+            crust_ids.append(crust["id"])
+
+        text_crusts += "\nEnter crust ID:"
+
+        # Przechodzi do wyboru rodzaju ciasta.
+        user_data[user_id]["crust_ids"] = crust_ids
+        user_data[user_id]["step"] = "crust"
+
+        await message.answer(text_crusts)
+        return
+
+
+    # PIZZA - CRUST ID
+
+    if action == "pizza" and step == "crust":
+
+        if not text.isdigit():
+            await message.answer("Crust ID must be a number.")
+            return
+
+        crust_id = int(text)
+
+        if crust_id not in data["crust_ids"]:
+            await message.answer("Crust with this ID does not exist.")
+            return
+
+        # Zapamiętuje ciasto i przechodzi do ilości.
+        user_data[user_id]["crust_id"] = crust_id
+        user_data[user_id]["step"] = "quantity"
+
+        await message.answer("Enter quantity from 1 to 4:")
+        return
+
+
+    # PIZZA - QUANTITY
+
+    if action == "pizza" and step == "quantity":
+
+        if not text.isdigit():
+            await message.answer("Quantity must be a number.")
+            return
+
+        quantity = int(text)
+
+        # Sprawdza poprawność ilości.
+        if quantity < 1 or quantity > 4:
+            await message.answer("Quantity must be from 1 to 4.")
+            return
+
+        if user_id not in user_tokens:
+            del user_data[user_id]
+
+            await message.answer("You must log in first. Use /login.")
+            return
+
+        # Dane pizzy wysyłane do koszyka.
+        cart_data = {
+            "pizza": data["pizza_id"],
+            "size": data["size_id"],
+            "typecake": data["crust_id"],
+            "quantity": quantity
+        }
+
+        headers = get_headers(user_id)
+
+        try:
+            # Dodaje pizzę do koszyka przez API.
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    f"{API_URL}/cart/add/",
+                    json=cart_data,
+                    headers=headers
+                ) as response:
+
+                    if response.status == 401:
+                        user_tokens.pop(user_id, None)
+                        del user_data[user_id]
+
+                        await message.answer(
+                            "Your session has expired. Use /login."
+                        )
+                        return
+
+                    if response.status != 201:
+                        error = await response.text()
+
+                        await message.answer(
+                            f"Could not add pizza to cart.\n{error}"
+                        )
+                        return
+
+        except aiohttp.ClientError:
+            await message.answer("Cannot connect to the server.")
+            return
+
+        # Wybór pizzy został zakończony.
+        del user_data[user_id]
+
+        await message.answer(
+            "Pizza added to cart!\n\n"
+            "Use /pizza to add another pizza.\n"
+            "Use /cart to show your cart.\n"
+            "Use /order to create an order."
+        )
+        return
+
+
+    # ORDER - ADDRESS
+
+    if action == "order" and step == "address":
+
+        # Adres musi mieć minimum 5 znaków.
+        if len(text) < 5:
+            await message.answer("Enter a valid delivery address.")
+            return
+
+        user_data[user_id]["address"] = text
+        user_data[user_id]["step"] = "phone"
+
+        await message.answer("Enter your phone number:")
+        return
+
+
+    # ORDER - PHONE
+
+    if action == "order" and step == "phone":
+
+        # Do sprawdzenia numeru usuwamy opcjonalny znak +.
+        phone = text.replace("+", "")
+
+        if not phone.isdigit():
+            await message.answer(
+                "Phone number can contain only numbers "
+                "and an optional +."
+            )
+            return
+
+        if len(phone) < 9:
+            await message.answer("Phone number is too short.")
+            return
+
+        if user_id not in user_tokens:
+            del user_data[user_id]
+
+            await message.answer("You must log in first. Use /login.")
+            return
+
+        # Dane zamówienia wysyłane do API.
+        order_data = {
+            "address": data["address"],
+            "phone": text
+        }
+
+        headers = get_headers(user_id)
+
+        try:
+            # Tworzy zamówienie przez Django API.
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    f"{API_URL}/order/create/",
+                    json=order_data,
+                    headers=headers
+                ) as response:
+
+                    if response.status == 401:
+                        user_tokens.pop(user_id, None)
+                        del user_data[user_id]
+
+                        await message.answer(
+                            "Your session has expired. Use /login."
+                        )
+                        return
+
+                    if response.status != 201:
+                        error = await response.text()
+
+                        await message.answer(
+                            f"Order could not be created.\n{error}"
+                        )
+                        return
+
+                    result = await response.json()
+
+        except aiohttp.ClientError:
+            await message.answer("Cannot connect to the server.")
+            return
+
+        # Zamówienie zostało zakończone.
+        del user_data[user_id]
+
+        await message.answer(
+            "Order created successfully!\n\n"
+            f"Order ID: {result['order_id']}\n"
+            f"Total: {result['value']} zł"
+        )
+        return
+
+
+# Run bot
+
+async def main():
+    """Uruchamia bota Telegram."""
+
+    print("Bot is running...")
+    await dp.start_polling(bot)
+
+
 if __name__ == "__main__":
     try:
         asyncio.run(main())
+
     except KeyboardInterrupt:
         print("Bot stopped.")
