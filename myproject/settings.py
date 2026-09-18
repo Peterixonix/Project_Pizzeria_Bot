@@ -138,3 +138,48 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
 
 STATIC_URL = 'static/'
+
+
+CELERY_BROKER_URL = "redis://redis:6379/0"
+CELERY_RESULT_BACKEND = "redis://redis:6379/0"
+
+CELERY_ACCEPT_CONTENT = ["json"]
+CELERY_TASK_SERIALIZER = "json"
+CELERY_RESULT_SERIALIZER = "json"
+
+CELERY_TIMEZONE = "Europe/Warsaw"
+
+
+from kombu import Exchange, Queue
+
+CELERY_TASK_QUEUES = (
+    Queue("orders", Exchange("orders"), routing_key="orders"),
+    Queue(
+        "notifications",
+        Exchange("notifications"),
+        routing_key="notifications",
+    ),
+)
+
+CELERY_TASK_DEFAULT_QUEUE = "orders"
+
+CELERY_TASK_ROUTES = {
+    "app.tasks.check_orders": {"queue": "orders"},
+    "app.tasks.send_notification": {"queue": "notifications"},
+}
+
+CELERY_BEAT_SCHEDULE = {
+    "check-orders-every-minute": {
+        "task": "app.tasks.check_orders",
+        "schedule": 60.0,
+    },
+    "send-notification-every-two-minutes": {
+        "task": "app.tasks.send_notification",
+        "schedule": 120.0,
+    },
+}
+
+
+GRAPHENE = {
+    "SCHEMA": "app.schema.schema",
+}

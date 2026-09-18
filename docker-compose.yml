@@ -15,6 +15,11 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
+  # Redis będzie używany przez Celery do obsługi kolejek zadań.
+  redis:
+    image: redis:7
+    restart: unless-stopped
+
   # Aplikacja Django.
   web:
     build: .
@@ -42,6 +47,52 @@ services:
     # Kontener Django zależy od kontenera PostgreSQL.
     depends_on:
       - db
+      - redis
+
+  # Worker obsługujący kolejkę zamówień.
+  celery_worker_orders:
+    build: .
+    command: celery -A myproject worker -l info -Q orders
+    volumes:
+      - .:/app
+    env_file:
+      - .env
+    environment:
+      DB_HOST: db
+      DB_PORT: 5432
+    depends_on:
+      - db
+      - redis
+
+  # Worker obsługujący kolejkę powiadomień.
+  celery_worker_notifications:
+    build: .
+    command: celery -A myproject worker -l info -Q notifications
+    volumes:
+      - .:/app
+    env_file:
+      - .env
+    environment:
+      DB_HOST: db
+      DB_PORT: 5432
+    depends_on:
+      - db
+      - redis
+
+  # Celery Beat uruchamia zadania według harmonogramu.
+  celery_beat:
+    build: .
+    command: celery -A myproject beat -l info
+    volumes:
+      - .:/app
+    env_file:
+      - .env
+    environment:
+      DB_HOST: db
+      DB_PORT: 5432
+    depends_on:
+      - db
+      - redis
 
 # Wolumen przechowujący dane PostgreSQL.
 volumes:
