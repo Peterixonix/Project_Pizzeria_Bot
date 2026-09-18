@@ -8,7 +8,7 @@ from aiogram.filters import Command, CommandStart
 from aiogram.types import Message
 
 
-# Configuration
+# Konfiguracja
 
 load_dotenv()
 
@@ -53,7 +53,7 @@ async def start(message: Message):
     )
 
 
-# Register
+# Rejestracja
 
 @dp.message(Command("register"))
 async def register(message: Message):
@@ -161,7 +161,7 @@ async def pizza(message: Message):
     await message.answer(text)
 
 
-# Cart
+# Koszyk
 
 @dp.message(Command("cart"))
 async def cart(message: Message):
@@ -222,7 +222,7 @@ async def cart(message: Message):
     await message.answer(text)
 
 
-# Order
+# Zamowienie
 
 @dp.message(Command("order"))
 async def order(message: Message):
@@ -243,7 +243,6 @@ async def order(message: Message):
     await message.answer("Enter delivery address:")
 
 
-# Text messages
 
 @dp.message()
 async def text_message(message: Message):
@@ -265,7 +264,7 @@ async def text_message(message: Message):
     text = message.text.strip()
 
 
-    # REGISTER - USERNAME
+    # Rejestracja - nazwa uzytkownika
 
     if action == "register" and step == "username":
 
@@ -282,7 +281,7 @@ async def text_message(message: Message):
         await message.answer("Enter your email:")
         return
 
-    # REGISTER - EMAIL
+    # Rejestracja mail
 
     if action == "register" and step == "email":
 
@@ -296,7 +295,7 @@ async def text_message(message: Message):
 
         await message.answer("Enter your password:")
         return
-    # REGISTER - PASSWORD
+    # Rejestracja - hasło
 
     if action == "register" and step == "password":
 

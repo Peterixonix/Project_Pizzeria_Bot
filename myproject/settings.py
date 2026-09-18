@@ -153,8 +153,13 @@ CELERY_TIMEZONE = "Europe/Warsaw"
 
 from kombu import Exchange, Queue
 
+# Definiuje kolejki zadań używane przez Celery.
 CELERY_TASK_QUEUES = (
+
+    # Kolejka odpowiedzialna za zadania związane z zamówieniami.
     Queue("orders", Exchange("orders"), routing_key="orders"),
+    
+    # Kolejka odpowiedzialna za zadania związane z powiadomieniami.
     Queue(
         "notifications",
         Exchange("notifications"),
@@ -162,18 +167,29 @@ CELERY_TASK_QUEUES = (
     ),
 )
 
+# Ustawia kolejkę "orders" jako domyślną kolejkę Celery.
 CELERY_TASK_DEFAULT_QUEUE = "orders"
 
+# Określa, do której kolejki mają trafiać konkretne zadania.
 CELERY_TASK_ROUTES = {
+
+    # Zadanie sprawdzające zamówienia trafia do kolejki "orders".
     "app.tasks.check_orders": {"queue": "orders"},
+
+    # Zadanie wysyłające powiadomienia trafia do kolejki "notifications".
     "app.tasks.send_notification": {"queue": "notifications"},
 }
 
+# Określa harmonogram automatycznego uruchamiania zadań przez Celery Beat.
 CELERY_BEAT_SCHEDULE = {
+
+    # Uruchamia zadanie sprawdzające zamówienia co 60 sekund.
     "check-orders-every-minute": {
         "task": "app.tasks.check_orders",
         "schedule": 60.0,
     },
+
+    # Uruchamia zadanie wysyłające powiadomienia co 120 sekund.
     "send-notification-every-two-minutes": {
         "task": "app.tasks.send_notification",
         "schedule": 120.0,
@@ -181,6 +197,7 @@ CELERY_BEAT_SCHEDULE = {
 }
 
 
+# Wskazuje lokalizację głównego schematu GraphQL używanego przez Graphene.
 GRAPHENE = {
     "SCHEMA": "app.schema.schema",
 }

@@ -5,25 +5,25 @@ from app.models.typecake import TypeCake
 from django.contrib.auth.models import User
 
 
-
+# Serializuje dane modelu Pizza.
 class PizzaSerializer(serializers.ModelSerializer):
     class Meta:
         model = Pizza
         fields = "__all__"
 
-
+# Serializuje dane modelu Size.
 class SizeSerializer(serializers.ModelSerializer):
     class Meta:
         model = Size
         fields = "__all__"
 
-
+# Serializuje dane modelu TypeCake.
 class TypeCakeSerializer(serializers.ModelSerializer):
     class Meta:
         model = TypeCake
         fields = "__all__"
 
-
+# Obsługuje dane potrzebne do rejestracji nowego użytkownika.
 class RegisterSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True)
 
@@ -31,6 +31,7 @@ class RegisterSerializer(serializers.ModelSerializer):
         model = User
         fields = ["username", "email", "password"]
 
+    # Tworzy nowego użytkownika na podstawie przesłanych danych.
     def create(self, validated_data):
         user = User.objects.create_user(
             username=validated_data["username"],
