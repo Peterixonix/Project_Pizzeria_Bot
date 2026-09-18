@@ -13,8 +13,14 @@ from app.models.posorder import OrderItem
 
 
 @pytest.mark.django_db
-def test_create_order():
+def test_create_order(monkeypatch):
     """Sprawdza utworzenie zamówienia, obliczenie jego wartości i opróżnienie koszyka."""
+
+    # Podczas testu nie uruchamia prawdziwego zadania Celery.
+    monkeypatch.setattr(
+    "app.views.send_notification.delay",
+    lambda *args, **kwargs: None
+    )
 
     # Tworzy użytkownika testowego.
     user = User.objects.create_user(

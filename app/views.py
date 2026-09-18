@@ -20,7 +20,7 @@ from app.serializers import (
     TypeCakeSerializer,
 )
 
-
+from app.tasks import send_notification
 
 class RegisterView(generics.CreateAPIView):
     """Obsługuje rejestrację nowych użytkowników."""
@@ -293,6 +293,11 @@ def create_order(request):
 
     # Po poprawnym utworzeniu zamówienia opróżnia koszyk użytkownika.
     cart_items.delete()
+
+    # Wysyła powiadomienie o nowym zamówieniu przez Celery.
+    send_notification.delay(
+    f"New order #{order.id}, value: {order.value} zł"
+    )
 
     # Zwraca informację o utworzonym zamówieniu.
     return Response(

@@ -59,3 +59,101 @@ def test_add_pizza_to_cart():
     assert cart_item.size == size
     assert cart_item.typecake == typecake
     assert cart_item.quantity == 2
+
+
+
+@pytest.mark.django_db
+def test_add_pizza_to_cart_invalid_quantity():
+    """Sprawdza błąd, gdy ilość produktu nie jest liczbą."""
+
+    # Tworzy użytkownika testowego.
+    user = User.objects.create_user(
+        username="testuser2",
+        password="test123"
+    )
+
+    # Tworzy klienta API i uwierzytelnia użytkownika.
+    client = APIClient()
+    client.force_authenticate(user=user)
+
+    # Tworzy dane potrzebne do dodania pizzy.
+    pizza = Pizza.objects.create(
+        name="Pepperoni",
+        content="Tomato sauce, cheese, pepperoni"
+    )
+
+    size = Size.objects.create(
+        name="Medium",
+        diameter=32
+    )
+
+    typecake = TypeCake.objects.create(
+        name="Thick"
+    )
+
+    # Podaje błędną ilość.
+    data = {
+        "pizza": pizza.id,
+        "size": size.id,
+        "typecake": typecake.id,
+        "quantity": "abc"
+    }
+
+    response = client.post(
+        "/api/cart/add/",
+        data,
+        format="json"
+    )
+
+    # Sprawdza, czy API zwróciło błąd walidacji.
+    assert response.status_code == 400
+    assert response.data["quantity"] == "The quantity must be a number."
+
+
+
+@pytest.mark.django_db
+def test_add_pizza_to_cart_zero_quantity():
+    """Sprawdza błąd, gdy ilość produktu wynosi zero."""
+
+    # Tworzy użytkownika testowego.
+    user = User.objects.create_user(
+        username="testuser3",
+        password="test123"
+    )
+
+    # Tworzy klienta API i uwierzytelnia użytkownika.
+    client = APIClient()
+    client.force_authenticate(user=user)
+
+    # Tworzy pizzę, rozmiar i rodzaj ciasta.
+    pizza = Pizza.objects.create(
+        name="Hawaii",
+        content="Tomato sauce, cheese, ham, pineapple"
+    )
+
+    size = Size.objects.create(
+        name="Small",
+        diameter=25
+    )
+
+    typecake = TypeCake.objects.create(
+        name="Thin"
+    )
+
+    # Podaje błędną ilość równą zero.
+    data = {
+        "pizza": pizza.id,
+        "size": size.id,
+        "typecake": typecake.id,
+        "quantity": 0
+    }
+
+    response = client.post(
+        "/api/cart/add/",
+        data,
+        format="json"
+    )
+
+    # Sprawdza, czy API zwróciło właściwy błąd walidacji.
+    assert response.status_code == 400
+    assert response.data["quantity"] == "The quantity must be greater than 0."
